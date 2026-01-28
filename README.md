@@ -27,7 +27,7 @@ Require stack:
   ...
 ```
 
-![Better Auth CLI error](docs/images/better-auth-prisma-fix/01-error.png)
+![Better Auth CLI error](/docs/images/1.png)
 
 *Screenshot 1: Error output showing MODULE_NOT_FOUND when running Better Auth CLI generate*
 
@@ -41,7 +41,7 @@ Better Auth CLI executes your config file (`src/utils/auth.ts`) in a Node.js con
 
 When Prisma generates the client to a custom folder (e.g., `generated/prisma/`), the import in your config must use a relative path from the config file location, not a bare module import.
 
-![Auth config with problematic import](docs/images/better-auth-prisma-fix/02-config-before.png)
+![Auth config with problematic import](/docs/images/2.png)
 
 *Screenshot 2: Original `auth.ts` with incorrect import path*
 
@@ -68,9 +68,7 @@ generator client {
 }
 ```
 
-This tells Prisma to generate the client to `generated/prisma/` instead of the default `node_modules/.prisma/client`.
-
-![Prisma schema.prisma configuration](docs/images/better-auth-prisma-fix/03-prisma-config.png)
+![Prisma schema.prisma configuration](/docs/images/3.png)
 
 *Screenshot 3: Prisma generator output configuration in schema.prisma*
 
@@ -126,7 +124,7 @@ export const auth = betterAuth({
 - Initialize `PrismaClient` with the PostgreSQL adapter from `@prisma/adapter-pg`
 - Pass the configured Prisma instance to `prismaAdapter()`
 
-![Working auth.ts configuration](docs/images/better-auth-prisma-fix/04-config-fixed.png)
+![Working auth.ts configuration](/docs/images/4.png)
 
 *Screenshot 4: Fixed `auth.ts` with correct relative import and adapter setup*
 
@@ -145,7 +143,7 @@ This command will now successfully:
 2. Resolve the `PrismaClient` import using the correct relative path
 3. Generate Better Auth schema files (typically in `generated/auth/`)
 
-![Successful Better Auth CLI execution](docs/images/better-auth-prisma-fix/05-success.png)
+![Successful Better Auth CLI execution](/docs/images/5.png)
 
 *Screenshot 5: Better Auth CLI successfully generates after fix (command runs without MODULE_NOT_FOUND error)*
 
