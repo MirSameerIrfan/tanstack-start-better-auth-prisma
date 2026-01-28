@@ -1,290 +1,224 @@
-Welcome to your new TanStack app! 
+# TanStack Start + Better Auth + Prisma
 
-# Getting Started
+A full-stack authentication setup combining TanStack Start, Better Auth, and Prisma with PostgreSQL.
 
-To run this application:
+## Project Setup
+
+This project demonstrates a complete authentication flow using:
+- **TanStack Start**: Full-stack framework
+- **Better Auth**: Authentication library
+- **Prisma**: ORM with PostgreSQL adapter
+
+---
+
+## Fix: Better Auth CLI + Prisma "MODULE_NOT_FOUND" in TanStack Start
+
+### Problem Summary
+
+When setting up Better Auth with Prisma in TanStack Start, you may encounter a module resolution error when running the Better Auth CLI `generate` command:
+
+```
+[@better-auth]: Couldn't read your auth config. Error: Cannot find module 'generated/prisma/client'
+Require stack:
+- /workspaces/codespaces-blank/src/utils/auth.ts
+  at Module._resolveFilename (node:internal/modules/cjs/loader:1421:15)
+  at require.resolve (node:internal/modules/cjs/loader:163:19)
+  at jitiResolve (/home/codespace/.npm/_npx/167ca1f1f6d365e6/node_modules/.jiti/dist/jiti.cjs:1:148703)
+  ...
+```
+
+![Better Auth CLI error](docs/images/better-auth-prisma-fix/01-error.png)
+
+*Screenshot 1: Error output showing MODULE_NOT_FOUND when running Better Auth CLI generate*
+
+### Root Cause
+
+Better Auth CLI executes your config file (`src/utils/auth.ts`) in a Node.js context at build time. It needs to resolve the `PrismaClient` import at this point. This fails when:
+
+1. **Import path is incorrect**: Using `import { PrismaClient } from "generated/prisma/client"` (bare path) instead of a relative path like `import { PrismaClient } from "../../generated/prisma/client"`
+2. **Prisma client not yet generated**: The Prisma schema needs to be compiled first
+3. **Output path mismatch**: Your Prisma `generator` block specifies an output path that doesn't match your import
+
+When Prisma generates the client to a custom folder (e.g., `generated/prisma/`), the import in your config must use a relative path from the config file location, not a bare module import.
+
+![Auth config with problematic import](docs/images/better-auth-prisma-fix/02-config-before.png)
+
+*Screenshot 2: Original `auth.ts` with incorrect import path*
+
+### The Working Fix (Step-by-Step)
+
+#### Step 1: Verify Dependencies
+
+Ensure you have the required packages installed:
 
 ```bash
-npm install
-npm run dev
+npm install @prisma/client prisma better-auth @better-auth/cli @prisma/adapter-pg
+# or
+pnpm install @prisma/client prisma better-auth @better-auth/cli @prisma/adapter-pg
 ```
 
-# Building For Production
+#### Step 2: Configure Prisma Generator Output Path
 
-To build this application for production:
+In `prisma/schema.prisma`, ensure your generator block specifies the custom output path:
+
+```prisma
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+```
+
+This tells Prisma to generate the client to `generated/prisma/` instead of the default `node_modules/.prisma/client`.
+
+![Prisma schema.prisma configuration](docs/images/better-auth-prisma-fix/03-prisma-config.png)
+
+*Screenshot 3: Prisma generator output configuration in schema.prisma*
+
+#### Step 3: Generate the Prisma Client
+
+From the **root of your project**, run:
 
 ```bash
-npm run build
+npx prisma generate
 ```
 
-## Testing
+This creates the client at `generated/prisma/client.ts`.
 
-This project uses [Vitest](https://vitest.dev/) for testing. You can run the tests with:
+#### Step 4: Update Auth Config with Correct Import Path
 
-```bash
-npm run test
+Update `src/utils/auth.ts` to use a **relative path** from the config file location:
+
+**INCORRECT:**
+```typescript
+import { PrismaClient } from "generated/prisma/client"
 ```
 
-## Styling
-
-This project uses CSS for styling.
-
-
-
-
-## Routing
-This project uses [TanStack Router](https://tanstack.com/router). The initial setup is a file based router. Which means that the routes are managed as files in `src/routes`.
-
-### Adding A Route
-
-To add a new route to your application just add another a new file in the `./src/routes` directory.
-
-TanStack will automatically generate the content of the route file for you.
-
-Now that you have two routes you can use a `Link` component to navigate between them.
-
-### Adding Links
-
-To use SPA (Single Page Application) navigation you will need to import the `Link` component from `@tanstack/react-router`.
-
-```tsx
-import { Link } from "@tanstack/react-router";
+**CORRECT:**
+```typescript
+import { PrismaClient } from "../../generated/prisma/client"
 ```
 
-Then anywhere in your JSX you can use it like so:
+Here's the complete working config:
 
-```tsx
-<Link to="/about">About</Link>
-```
+```typescript
+// src/utils/auth.ts
 
-This will create a link that will navigate to the `/about` route.
+import { betterAuth } from "better-auth"
+import { prismaAdapter } from "better-auth/adapters/prisma"
+import { PrismaClient } from "../../generated/prisma/client"
+import { PrismaPg } from "@prisma/adapter-pg"
 
-More information on the `Link` component can be found in the [Link documentation](https://tanstack.com/router/v1/docs/framework/react/api/router/linkComponent).
+const adapter = new PrismaPg({
+  connectionString: process.env.DATABASE_URL!,
+})
 
-### Using A Layout
+const prisma = new PrismaClient({ adapter })
 
-In the File Based Routing setup the layout is located in `src/routes/__root.tsx`. Anything you add to the root route will appear in all the routes. The route content will appear in the JSX where you use the `<Outlet />` component.
-
-Here is an example layout that includes a header:
-
-```tsx
-import { Outlet, createRootRoute } from '@tanstack/react-router'
-import { TanStackRouterDevtools } from '@tanstack/react-router-devtools'
-
-import { Link } from "@tanstack/react-router";
-
-export const Route = createRootRoute({
-  component: () => (
-    <>
-      <header>
-        <nav>
-          <Link to="/">Home</Link>
-          <Link to="/about">About</Link>
-        </nav>
-      </header>
-      <Outlet />
-      <TanStackRouterDevtools />
-    </>
-  ),
+export const auth = betterAuth({
+  database: prismaAdapter(prisma, {
+    provider: "postgresql"
+  })
 })
 ```
 
-The `<TanStackRouterDevtools />` component is not required so you can remove it if you don't want it in your layout.
+**Key points:**
+- Use `../../` relative path from `src/utils/auth.ts` to `generated/prisma/client`
+- Initialize `PrismaClient` with the PostgreSQL adapter from `@prisma/adapter-pg`
+- Pass the configured Prisma instance to `prismaAdapter()`
 
-More information on layouts can be found in the [Layouts documentation](https://tanstack.com/router/latest/docs/framework/react/guide/routing-concepts#layouts).
+![Working auth.ts configuration](docs/images/better-auth-prisma-fix/04-config-fixed.png)
 
+*Screenshot 4: Fixed `auth.ts` with correct relative import and adapter setup*
 
-## Data Fetching
+#### Step 5: Generate Better Auth Schema
 
-There are multiple ways to fetch data in your application. You can use TanStack Query to fetch data from a server. But you can also use the `loader` functionality built into TanStack Router to load the data for a route before it's rendered.
-
-For example:
-
-```tsx
-const peopleRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/people",
-  loader: async () => {
-    const response = await fetch("https://swapi.dev/api/people");
-    return response.json() as Promise<{
-      results: {
-        name: string;
-      }[];
-    }>;
-  },
-  component: () => {
-    const data = peopleRoute.useLoaderData();
-    return (
-      <ul>
-        {data.results.map((person) => (
-          <li key={person.name}>{person.name}</li>
-        ))}
-      </ul>
-    );
-  },
-});
-```
-
-Loaders simplify your data fetching logic dramatically. Check out more information in the [Loader documentation](https://tanstack.com/router/latest/docs/framework/react/guide/data-loading#loader-parameters).
-
-### React-Query
-
-React-Query is an excellent addition or alternative to route loading and integrating it into you application is a breeze.
-
-First add your dependencies:
+Now run the Better Auth CLI generate command:
 
 ```bash
-npm install @tanstack/react-query @tanstack/react-query-devtools
+npm @better-auth/cli generate
+# or
+pnpm @better-auth/cli generate
 ```
 
-Next we'll need to create a query client and provider. We recommend putting those in `main.tsx`.
+This command will now successfully:
+1. Load your auth config from `src/utils/auth.ts`
+2. Resolve the `PrismaClient` import using the correct relative path
+3. Generate Better Auth schema files (typically in `generated/auth/`)
 
-```tsx
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+![Successful Better Auth CLI execution](docs/images/better-auth-prisma-fix/05-success.png)
 
-// ...
+*Screenshot 5: Better Auth CLI successfully generates after fix (command runs without MODULE_NOT_FOUND error)*
 
-const queryClient = new QueryClient();
+### Gotchas & Troubleshooting
 
-// ...
+- **Prisma client not found**: If you still get an error after Step 3, ensure `generated/prisma/client.ts` actually exists: `ls generated/prisma/`
+- **Running from wrong directory**: Always run `npx prisma generate` from the project root (where `prisma/schema.prisma` is located)
+- **Stale node_modules**: If the Prisma client was previously generated to `node_modules/.prisma`, you may need to clear it: `rm -rf node_modules/.prisma`
+- **Dev server still running**: Restart your dev server after running `prisma generate` to avoid import caching issues
+- **Monorepo setups**: If using a monorepo, ensure `@prisma/client` is installed in the root `node_modules` and run Prisma commands from the root
 
-if (!rootElement.innerHTML) {
-  const root = ReactDOM.createRoot(rootElement);
+### Verification
 
-  root.render(
-    <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>
-  );
-}
-```
-
-You can also add TanStack Query Devtools to the root route (optional).
-
-```tsx
-import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
-
-const rootRoute = createRootRoute({
-  component: () => (
-    <>
-      <Outlet />
-      <ReactQueryDevtools buttonPosition="top-right" />
-      <TanStackRouterDevtools />
-    </>
-  ),
-});
-```
-
-Now you can use `useQuery` to fetch your data.
-
-```tsx
-import { useQuery } from "@tanstack/react-query";
-
-import "./App.css";
-
-function App() {
-  const { data } = useQuery({
-    queryKey: ["people"],
-    queryFn: () =>
-      fetch("https://swapi.dev/api/people")
-        .then((res) => res.json())
-        .then((data) => data.results as { name: string }[]),
-    initialData: [],
-  });
-
-  return (
-    <div>
-      <ul>
-        {data.map((person) => (
-          <li key={person.name}>{person.name}</li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-export default App;
-```
-
-You can find out everything you need to know on how to use React-Query in the [React-Query documentation](https://tanstack.com/query/latest/docs/framework/react/overview).
-
-## State Management
-
-Another common requirement for React applications is state management. There are many options for state management in React. TanStack Store provides a great starting point for your project.
-
-First you need to add TanStack Store as a dependency:
+Confirm the fix is working:
 
 ```bash
-npm install @tanstack/store
+# 1. Verify the generated Prisma client exists
+ls generated/prisma/client.ts
+
+# 2. Verify Better Auth CLI command succeeds
+npm @better-auth/cli generate
+
+# 3. Start your dev server and test
+npm run dev
+# Try accessing the sign-in route to confirm auth is working
 ```
 
-Now let's create a simple counter in the `src/App.tsx` file as a demonstration.
+---
 
-```tsx
-import { useStore } from "@tanstack/react-store";
-import { Store } from "@tanstack/store";
-import "./App.css";
+## Project Structure
 
-const countStore = new Store(0);
-
-function App() {
-  const count = useStore(countStore);
-  return (
-    <div>
-      <button onClick={() => countStore.setState((n) => n + 1)}>
-        Increment - {count}
-      </button>
-    </div>
-  );
-}
-
-export default App;
+```
+.
+├── src/
+│   ├── utils/
+│   │   └── auth.ts              # Better Auth + Prisma config
+│   ├── routes/
+│   │   └── api/auth/$.ts        # Auth API handler
+│   └── ...
+├── prisma/
+│   └── schema.prisma            # Database schema
+├── generated/
+│   ├── prisma/                  # Generated Prisma client
+│   └── auth/                    # Generated Better Auth files
+├── docs/
+│   └── images/
+└── ...
 ```
 
-One of the many nice features of TanStack Store is the ability to derive state from other state. That derived state will update when the base state updates.
+## Getting Started
 
-Let's check this out by doubling the count using derived state.
+1. Set up environment variables (`.env`):
+   ```
+   DATABASE_URL="postgresql://user:password@localhost:5432/dbname"
+   ```
 
-```tsx
-import { useStore } from "@tanstack/react-store";
-import { Store, Derived } from "@tanstack/store";
-import "./App.css";
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
 
-const countStore = new Store(0);
+3. Generate Prisma client:
+   ```bash
+   npx prisma generate
+   ```
 
-const doubledStore = new Derived({
-  fn: () => countStore.state * 2,
-  deps: [countStore],
-});
-doubledStore.mount();
+4. Generate Better Auth:
+   ```bash
+   npm @better-auth/cli generate
+   ```
 
-function App() {
-  const count = useStore(countStore);
-  const doubledCount = useStore(doubledStore);
+5. Run the dev server:
+   ```bash
+   npm run dev
+   ```
 
-  return (
-    <div>
-      <button onClick={() => countStore.setState((n) => n + 1)}>
-        Increment - {count}
-      </button>
-      <div>Doubled - {doubledCount}</div>
-    </div>
-  );
-}
-
-export default App;
-```
-
-We use the `Derived` class to create a new store that is derived from another store. The `Derived` class has a `mount` method that will start the derived store updating.
-
-Once we've created the derived store we can use it in the `App` component just like we would any other store using the `useStore` hook.
-
-You can find out everything you need to know on how to use TanStack Store in the [TanStack Store documentation](https://tanstack.com/store/latest).
-
-# Demo files
-
-Files prefixed with `demo` can be safely deleted. They are there to provide a starting point for you to play around with the features you've installed.
-
-# Learn More
-
-You can learn more about all of the offerings from TanStack in the [TanStack documentation](https://tanstack.com).
